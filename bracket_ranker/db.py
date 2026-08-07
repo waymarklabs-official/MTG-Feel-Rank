@@ -208,15 +208,25 @@ CREATE TABLE IF NOT EXISTS calibration_runs (
 
 
 def get_connection() -> sqlite3.Connection:
+    """Every connection ensures the schema exists first -- CREATE TABLE IF
+    NOT EXISTS is cheap and idempotent, so this costs nothing once the
+    tables already exist, but it means a fresh clone with no database file
+    yet just works the first time any stage runs. This used to be a
+    separate init_db() step nothing called automatically; a user hit
+    "no such table: cards" on a completely fresh checkout because of it.
+    """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
 def init_db() -> None:
-    with get_connection() as conn:
-        conn.executescript(SCHEMA)
+    """Kept as an explicit, nameable step for CLI use -- get_connection()
+    (used everywhere else) already does this on every call, so running
+    this separately is never actually required anymore."""
+    get_connection().close()
 
 
 @contextmanager
