@@ -2,7 +2,7 @@
 corpus, and trigger any pipeline stage as a background job -- no need to
 come back to a terminal (or a chat session) to run another simulation.
 
-Usage: python run_webapp.py [--port 5000]
+Usage: python run_webapp.py [--port 5050]
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from webapp.app import app
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Bracket Ranker web UI")
-    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--port", type=int, default=5050)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
     print(f"[webapp] serving on http://{args.host}:{args.port}")
