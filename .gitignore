@@ -1,0 +1,29 @@
+# Personal input data -- not code, and not something to publish.
+# ManaBox_Collection.csv is your own card collection export.
+ManaBox_Collection.csv
+
+# Everything under data/ is a regenerable cached artifact per the project's
+# own design ("cache everything, reruns should be cheap"): Scryfall bulk
+# downloads, the Spellbook combo dump, per-deck Archidekt JSON, the SQLite
+# database, the fitted model, and generated reports. Multiple GB combined --
+# none of it belongs in git. Run the pipeline (see README) to regenerate it.
+data/cache/
+data/db/
+data/reports/
+data/cache/ingest_raw/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

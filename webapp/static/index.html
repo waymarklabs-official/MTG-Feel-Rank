@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commander Bracket Ranker</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Commander Bracket Ranker</h1>
+  <div id="corpus-badge" class="badge">loading...</div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="explorer">Explorer</button>
+  <button class="tab-btn" data-tab="pull">Deep Pull</button>
+  <button class="tab-btn" data-tab="pipeline">Pipeline</button>
+  <button class="tab-btn" data-tab="dashboard">Dashboard</button>
+</nav>
+
+<main>
+
+<section id="tab-explorer" class="tab-panel active">
+  <form id="filter-form" class="filter-bar">
+    <div class="field">
+      <label>Commander</label>
+      <input type="text" id="f-commander" list="commander-list" placeholder="e.g. Prosper, Tome-Bound" autocomplete="off">
+      <datalist id="commander-list"></datalist>
+    </div>
+    <div class="field">
+      <label>Source</label>
+      <select id="f-source" multiple size="1"></select>
+    </div>
+    <div class="field">
+      <label>Bracket</label>
+      <select id="f-bracket">
+        <option value="">any</option>
+        <option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4">4</option>
+        <option value="5">5</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Max cost ($)</label>
+      <input type="number" id="f-max-cost" placeholder="500" min="0">
+    </div>
+    <div class="field">
+      <label>Min % owned</label>
+      <input type="number" id="f-min-owned" placeholder="0" min="0" max="100">
+    </div>
+    <div class="field">
+      <label>Min confidence</label>
+      <input type="number" id="f-min-conf" placeholder="0" min="0" max="100">
+    </div>
+    <div class="field checkbox-field">
+      <label><input type="checkbox" id="f-starred"> starred only</label>
+    </div>
+    <div class="field checkbox-field">
+      <label><input type="checkbox" id="f-show-rejected"> show rejected</label>
+    </div>
+    <div class="field">
+      <label>Sort by</label>
+      <select id="f-sort-by">
+        <option value="usd_to_complete">cost to complete</option>
+        <option value="feel_score">feel score</option>
+        <option value="confidence">confidence</option>
+        <option value="pct_owned">% owned</option>
+      </select>
+    </div>
+    <button type="submit" class="primary">Search</button>
+  </form>
+
+  <div id="results-meta" class="results-meta"></div>
+  <div id="results-table"></div>
+  <div id="results-pager" class="pager"></div>
+</section>
+
+<section id="tab-pull" class="tab-panel">
+  <h2>Deep-pull a specific commander</h2>
+  <p class="hint">
+    The general corpus samples broadly across all commanders, so any one commander usually
+    only has a handful of decks. This pulls up to <em>target</em> real Archidekt decks
+    filtered specifically by commander name, appends them to the corpus, and automatically
+    re-runs Stages 2-5 so the Explorer reflects the new decks when it's done.
+  </p>
+  <form id="pull-form" class="filter-bar">
+    <div class="field">
+      <label>Commander name (exact, e.g. "Prosper, Tome-Bound")</label>
+      <input type="text" id="pull-commander" required placeholder="Prosper, Tome-Bound" size="40">
+    </div>
+    <div class="field">
+      <label>Target decks</label>
+      <input type="number" id="pull-target" value="300" min="10" max="1000">
+    </div>
+    <button type="submit" class="primary">Pull &amp; rebuild</button>
+  </form>
+  <div id="pull-job" class="job-panel"></div>
+</section>
+
+<section id="tab-pipeline" class="tab-panel">
+  <h2>Pipeline control</h2>
+  <p class="hint">Every button below runs the same code as its <code>python run_*.py</code> CLI
+    equivalent, in the background. Stages read whatever the previous stage last wrote to disk/SQLite,
+    so re-running one is always safe.</p>
+  <div class="stage-grid">
+    <button class="stage-btn" data-stage="collection">Refresh collection (ManaBox CSV)</button>
+    <button class="stage-btn" data-stage="ingest">Stage 1: Ingest corpus</button>
+    <button class="stage-btn" data-stage="resolve">Stage 2: Resolve</button>
+    <button class="stage-btn" data-stage="analyze">Stage 3: Analyze</button>
+    <button class="stage-btn" data-stage="calibrate">Stage 4: Calibrate</button>
+    <button class="stage-btn" data-stage="export">Stage 5: Export CSV</button>
+    <button class="stage-btn wide" data-stage="full_pipeline">Rebuild everything (2-5)</button>
+    <button class="stage-btn" data-stage="price_crosscheck">Price cross-check</button>
+    <button class="stage-btn" data-stage="spellbook_crosscheck">Spellbook cross-check (sample 50)</button>
+  </div>
+  <h3>Job history</h3>
+  <div id="job-history"></div>
+</section>
+
+<section id="tab-dashboard" class="tab-panel">
+  <h2>Dashboard</h2>
+  <div id="dashboard-content">loading...</div>
+</section>
+
+</main>
+
+<div id="detail-modal" class="modal hidden">
+  <div class="modal-content">
+    <button id="modal-close" class="modal-close">&times;</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Standard scientific Python stack, plus justified additions:
+#   requests    - stdlib urllib makes streaming gzip downloads with retries/headers painful
+#   tqdm        - progress bars for long-running bulk downloads and Monte Carlo simulation loops
+#   flask       - local web UI backend (webapp/): minimal, no async/ORM complexity needed for
+#                 a single-user local tool. Frontend is plain HTML/CSS/JS, no npm/build step.
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.4
+scipy>=1.12
+requests>=2.31
+tqdm>=4.66
+flask>=3.0

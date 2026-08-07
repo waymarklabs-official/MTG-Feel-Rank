@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bracket-ranker-webapp",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["run_webapp.py", "--port", "5050"],
+      "port": 5050
+    }
+  ]
+}
