@@ -134,20 +134,22 @@ def load_cards_table(conn: sqlite3.Connection, oracle_cards_path: Path) -> int:
             card.get("prices", {}).get("usd"),
             card.get("prices", {}).get("usd_foil"),
             card.get("scryfall_uri"),
+            json.dumps(card["produced_mana"]) if card.get("produced_mana") else None,
         ))
     conn.executemany(
         """INSERT INTO cards (
             oracle_id, name, layout, mana_cost, cmc, type_line, oracle_text,
             color_identity, game_changer, is_land, is_basic_land,
-            usd_min, usd_min_foil, scryfall_uri
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            usd_min, usd_min_foil, scryfall_uri, produced_mana
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(oracle_id) DO UPDATE SET
             name=excluded.name, layout=excluded.layout,
             mana_cost=excluded.mana_cost, cmc=excluded.cmc,
             type_line=excluded.type_line, oracle_text=excluded.oracle_text,
             color_identity=excluded.color_identity,
             game_changer=excluded.game_changer, is_land=excluded.is_land,
-            is_basic_land=excluded.is_basic_land
+            is_basic_land=excluded.is_basic_land,
+            produced_mana=excluded.produced_mana
         """,
         rows,
     )

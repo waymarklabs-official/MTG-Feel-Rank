@@ -29,7 +29,10 @@ CREATE TABLE IF NOT EXISTS cards (
     is_basic_land   INTEGER NOT NULL DEFAULT 0,
     usd_min         REAL,   -- cheapest known printing price, nonfoil preferred
     usd_min_foil    REAL,
-    scryfall_uri    TEXT
+    scryfall_uri    TEXT,
+    produced_mana   TEXT    -- JSON list from Scryfall's own produced_mana field,
+                            -- e.g. ["R","U"] for Steam Vents, ["C"] for Sol Ring,
+                            -- NULL for cards that don't produce mana at all
 );
 
 -- Maps every printing (what ManaBox's "Scryfall ID" column actually is)
@@ -207,6 +210,25 @@ CREATE TABLE IF NOT EXISTS calibration_runs (
 """
 
 
+# Columns added to an already-shipped table after the fact. CREATE TABLE IF
+# NOT EXISTS (above) only helps a table that doesn't exist yet -- it's a
+# no-op against an existing table, so a column added to the schema here
+# would silently never appear in anyone's already-initialized database
+# without this. Each entry is (table, column, SQL type/default clause);
+# _migrate_columns applies whichever ones are actually missing, so this is
+# always safe to re-run and always safe to add more entries to later.
+COLUMN_MIGRATIONS = [
+    ("cards", "produced_mana", "TEXT"),
+]
+
+
+def _migrate_columns(conn: sqlite3.Connection) -> None:
+    for table, column, sql_type in COLUMN_MIGRATIONS:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+
+
 def get_connection() -> sqlite3.Connection:
     """Every connection ensures the schema exists first -- CREATE TABLE IF
     NOT EXISTS is cheap and idempotent, so this costs nothing once the
@@ -218,6 +240,7 @@ def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate_columns(conn)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 

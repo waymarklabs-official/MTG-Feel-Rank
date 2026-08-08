@@ -6,6 +6,9 @@ way to trigger and watch it.
 """
 from __future__ import annotations
 
+import dataclasses
+import json
+
 import run_analyze
 import run_calibrate
 import run_export
@@ -22,6 +25,7 @@ from bracket_ranker.calibrate.spellbook_crosscheck import (
     store_crosscheck,
 )
 from bracket_ranker.collection import refresh_all as collection_refresh_all
+from bracket_ranker.config import DECK_RECORDS_PATH
 from bracket_ranker.db import connect
 from bracket_ranker.resolve import refresh_all as resolve_refresh_all
 
@@ -29,6 +33,42 @@ from bracket_ranker.resolve import refresh_all as resolve_refresh_all
 def action_pull_commander(commander: str, target: int) -> dict:
     n = pull_commander.run(commander, target=target)
     return {"commander": commander, "decks_added": n}
+
+
+def action_import_deck(url_or_id: str) -> dict:
+    """Import one specific deck by Archidekt URL/ID -- for testing your
+    own decks, which may not be anywhere in the sampled corpus. Only runs
+    Stage 2 (resolve) afterward, not the full pipeline: that's enough to
+    make the deck queryable and stress-testable immediately, without
+    forcing a slow corpus-wide recalibration just to import one deck. Run
+    "Rebuild everything" from the Pipeline tab afterward if you also want
+    it scored/ranked in Explorer.
+    """
+    from bracket_ranker.ingest.archidekt import fetch_one_deck
+
+    record = fetch_one_deck(url_or_id)
+    if record is None:
+        raise ValueError(
+            f"couldn't import a deck from {url_or_id!r} -- check the URL/ID "
+            f"and that the deck has a commander set"
+        )
+
+    with open(DECK_RECORDS_PATH, "a", encoding="utf-8") as out:
+        out.write(json.dumps(dataclasses.asdict(record)) + "\n")
+
+    resolve_refresh_all()
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT fingerprint FROM decks WHERE source='archidekt' AND source_deck_id=?",
+            (record.source_deck_id,),
+        ).fetchone()
+
+    return {
+        "commander_name": record.commander_name,
+        "fingerprint": row[0] if row else None,
+        "source_url": record.source_url,
+    }
 
 
 def action_run_collection() -> dict:

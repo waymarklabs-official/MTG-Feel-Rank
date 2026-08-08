@@ -15,6 +15,7 @@ back empty, bounded by the per-run budgets in config.py.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Iterator
@@ -72,7 +73,7 @@ def _get_deck_detail(deck_id: int) -> dict | None:
     return detail
 
 
-def _parse_deck(detail: dict) -> DeckRecord | None:
+def _parse_deck(detail: dict, enforce_size_sanity: bool = True) -> DeckRecord | None:
     commander_names = []
     cards: list[CardEntry] = []
     tcg_total = 0.0
@@ -116,8 +117,13 @@ def _parse_deck(detail: dict) -> DeckRecord | None:
     # Verified live: a 312-card deck literally named "big deck" turned up
     # in the raw pull. A real (possibly partner/companion) Commander deck
     # lands close to 100; anything well outside that isn't one.
+    # Skipped for an explicit single-deck import (enforce_size_sanity=False):
+    # if someone deliberately imports one exact deck by URL, honor whatever
+    # it actually is (a work-in-progress, a Duel Commander list, a Companion
+    # deck at 101) rather than second-guessing their choice the way the
+    # broad corpus sweep needs to, to filter out actual junk.
     total_quantity = sum(c.quantity for c in cards)
-    if not (90 <= total_quantity <= 110):
+    if enforce_size_sanity and not (90 <= total_quantity <= 110):
         return None
 
     return DeckRecord(
@@ -135,6 +141,36 @@ def _parse_deck(detail: dict) -> DeckRecord | None:
             "deckFormat": detail.get("deckFormat"),
         },
     )
+
+
+_DECK_ID_RE = re.compile(r"(?:archidekt\.com/decks/)?(\d+)")
+
+
+def parse_deck_id(url_or_id: str) -> int | None:
+    """Accepts a full Archidekt deck URL, a bare deck ID, or anything with
+    the ID embedded (e.g. pasted with a trailing slug/query string)."""
+    match = _DECK_ID_RE.search(url_or_id.strip())
+    return int(match.group(1)) if match else None
+
+
+def fetch_one_deck(url_or_id: str) -> DeckRecord | None:
+    """Import one specific deck by URL/ID -- for testing your own decks,
+    which may not be anywhere in the sampled corpus at all. Bypasses the
+    100-card sanity filter the broad sweep needs (see _parse_deck): you
+    asked for this exact deck, so you get this exact deck back, whatever
+    its actual card count is.
+    """
+    deck_id = parse_deck_id(url_or_id)
+    if deck_id is None:
+        print(f"[archidekt] couldn't find a deck ID in {url_or_id!r}")
+        return None
+    detail = _get_deck_detail(deck_id)
+    if detail is None:
+        return None
+    record = _parse_deck(detail, enforce_size_sanity=False)
+    if record is None:
+        print(f"[archidekt] deck {deck_id} has no commander or no resolvable cards")
+    return record
 
 
 def fetch_for_commander(commander_name: str, target: int = 300) -> Iterator[DeckRecord]:

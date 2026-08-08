@@ -243,6 +243,49 @@ async function openDeckDetail(fingerprint) {
     $("#detail-notes-save").textContent = "Saved";
     setTimeout(() => { $("#detail-notes-save").textContent = "Save note"; }, 1200);
   });
+
+  $("#detail-stress-test-btn").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = "Running 2000 simulations...";
+    try {
+      const report = await api(`/api/decks/${fingerprint}/stress_test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ n_simulations: 2000 }),
+      });
+      $("#detail-stress-report").innerHTML = renderStressTestReport(report);
+    } finally {
+      e.target.disabled = false;
+      e.target.textContent = "Run deep stress test";
+    }
+  });
+}
+
+// ---------- shared stress-test report rendering (modal + Simulate tab) ----------
+
+function renderStressTestReport(report) {
+  const comboRows = report.combo_stats.length
+    ? report.combo_stats.map((c) => `
+        <div class="detail-row">
+          <span>${c.piece_count}pc ${c.is_game_ender ? "game-ending" : (c.is_infinite ? "infinite" : "value")}</span>
+          <span>
+            median ${c.median_turn ?? "-"} / p25 ${c.p25_turn ?? "-"} / p75 ${c.p75_turn ?? "-"}
+            &mdash; never assembled in ${fmtPct(c.never_rate)} of games
+          </span>
+        </div>
+      `).join("")
+    : `<p class="hint">No detected combos to track.</p>`;
+
+  return `
+    <div class="stress-report">
+      <h4>Stress test (${report.n_simulations} simulations, v2 color-aware mana model)</h4>
+      <div class="detail-row"><span>Mulligan rate</span><span>${fmtPct(report.mulligan_rate)} (avg ${report.avg_mulligans_taken.toFixed(2)} mulligans/game)</span></div>
+      <div class="detail-row"><span>First castable spell (median / p75)</span><span>turn ${report.first_spell_turn_median ?? "-"} / turn ${report.first_spell_turn_p75 ?? "-"}</span></div>
+      <div class="detail-row"><span>Color-screw rate (through turn 6)</span><span>${fmtPct(report.color_screw_game_rate)}</span></div>
+      <h4 style="margin-top:12px">Combo assembly distributions</h4>
+      ${comboRows}
+    </div>
+  `;
 }
 
 function renderDeckDetail(d) {
@@ -292,6 +335,8 @@ function renderDeckDetail(d) {
         <div class="detail-row"><span>Assembly turn (median / p25)</span><span>${combos.median_assembly_turn ?? "never"} / ${combos.p25_assembly_turn ?? "-"}</span></div>
         <div class="detail-row"><span>Mana model</span><span>${combos.mana_model_version}</span></div>
       ` : `<p class="hint">No combo detected -- see known limitation: zero-combo decks are structurally underrated.</p>`}
+      <button class="primary" id="detail-stress-test-btn" style="margin-top:8px">Run deep stress test</button>
+      <div id="detail-stress-report"></div>
     </div>
 
     <div class="detail-section">
@@ -360,6 +405,149 @@ function initPullForm() {
       await refreshCorpusBadge();
     } finally {
       button.disabled = false;
+    }
+  });
+}
+
+// ---------- simulate tab ----------
+
+const simSlots = { you: null, opp1: null, opp2: null, opp3: null };
+let simSearchDebounce = null;
+
+function initImportDeckForm() {
+  $("#import-deck-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const url = $("#import-deck-url").value.trim();
+    if (!url) return;
+    const button = e.target.querySelector("button");
+    button.disabled = true;
+    try {
+      const { job_id } = await api("/api/jobs/import_deck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const job = await pollJob(job_id, "#import-deck-job");
+      if (job.status === "completed" && job.result && job.result.fingerprint) {
+        selectSimDeck("you", {
+          fingerprint: job.result.fingerprint,
+          commander_name: job.result.commander_name,
+          source: "archidekt",
+        });
+        $("#import-deck-url").value = "";
+      }
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function selectSimDeck(slot, deck) {
+  simSlots[slot] = deck;
+  const picker = $(`.sim-picker[data-slot="${slot}"]`);
+  picker.querySelector(".sim-search-results").innerHTML = "";
+  picker.querySelector(".sim-search").value = "";
+  picker.querySelector(".sim-selected").innerHTML = `
+    <div class="sim-chip">
+      <span>${escapeHtml(deck.commander_name)} <span class="hint">(${deck.source})</span></span>
+      <button type="button" class="sim-chip-clear">&times;</button>
+    </div>
+  `;
+  picker.querySelector(".sim-chip-clear").addEventListener("click", () => {
+    simSlots[slot] = null;
+    picker.querySelector(".sim-selected").innerHTML = "";
+  });
+}
+
+function initSimPickers() {
+  $all(".sim-picker").forEach((picker) => {
+    const slot = picker.dataset.slot;
+    const input = picker.querySelector(".sim-search");
+    const results = picker.querySelector(".sim-search-results");
+    input.addEventListener("input", () => {
+      clearTimeout(simSearchDebounce);
+      const q = input.value.trim();
+      if (!q) { results.innerHTML = ""; return; }
+      simSearchDebounce = setTimeout(async () => {
+        const decks = await api(`/api/decks/search?q=${encodeURIComponent(q)}`);
+        results.innerHTML = decks.map((d, i) => `
+          <div class="sim-search-result" data-idx="${i}">
+            ${escapeHtml(d.commander_name)} <span class="hint">(${d.source})</span>
+          </div>
+        `).join("") || `<div class="hint" style="padding:6px">no matches</div>`;
+        Array.from(results.querySelectorAll(".sim-search-result")).forEach((row, i) => {
+          row.addEventListener("click", () => selectSimDeck(slot, decks[i]));
+        });
+      }, 200);
+    });
+  });
+}
+
+function renderTableSimReport(report) {
+  const rows = report.players.map((p) => `
+    <div class="detail-row">
+      <span>${escapeHtml(p.commander_name)}${p.fingerprint === report.players[0].fingerprint ? " (you)" : ""}</span>
+      <span>won the race in ${fmtPct(report.win_race_rate[p.fingerprint] || 0)} of table-games</span>
+    </div>
+  `).join("");
+
+  return `
+    <div class="stress-report">
+      <h4>Table simulation (${report.n_simulations} games per deck)</h4>
+      <div class="detail-row"><span>Your raw combo-assembly rate</span><span>${fmtPct(report.your_raw_combo_rate)}</span></div>
+      <div class="detail-row"><span>Estimated disruption chance per attempt</span><span>${fmtPct(report.your_disruption_chance)}</span></div>
+      <div class="detail-row"><span>Your adjusted (post-disruption) combo rate</span><span>${fmtPct(report.your_adjusted_combo_rate)}</span></div>
+      <h4 style="margin-top:12px">Race results</h4>
+      ${rows}
+      <p class="hint" style="margin-top:10px">
+        Not a real interactive simulator: each deck's game was simulated independently, with no
+        stack, targeting, or blocking. "Won the race" means this deck's fastest detected combo
+        assembled earliest among the four in a given paired game. The disruption chance is a
+        single rough estimate from the table's average interaction density, not a prediction of
+        when or how an opponent would actually respond.
+      </p>
+    </div>
+  `;
+}
+
+function initSimButtons() {
+  $("#run-stress-test-btn").addEventListener("click", async (e) => {
+    if (!simSlots.you) {
+      $("#sim-report").innerHTML = `<p class="hint">Select "Your deck" first.</p>`;
+      return;
+    }
+    e.target.disabled = true;
+    try {
+      const report = await api(`/api/decks/${simSlots.you.fingerprint}/stress_test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ n_simulations: 2000 }),
+      });
+      $("#sim-report").innerHTML = renderStressTestReport(report);
+    } finally {
+      e.target.disabled = false;
+    }
+  });
+
+  $("#run-table-sim-btn").addEventListener("click", async (e) => {
+    const fingerprints = ["you", "opp1", "opp2", "opp3"]
+      .map((s) => simSlots[s])
+      .filter(Boolean)
+      .map((d) => d.fingerprint);
+    if (fingerprints.length < 2) {
+      $("#sim-report").innerHTML = `<p class="hint">Select your deck plus at least one opponent.</p>`;
+      return;
+    }
+    e.target.disabled = true;
+    try {
+      const report = await api("/api/table_sim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprints, n_simulations: 1500 }),
+      });
+      $("#sim-report").innerHTML = renderTableSimReport(report);
+    } finally {
+      e.target.disabled = false;
     }
   });
 }
@@ -517,6 +705,9 @@ async function init() {
   initCommanderAutocomplete();
   initModal();
   initPullForm();
+  initImportDeckForm();
+  initSimPickers();
+  initSimButtons();
   initPipelineButtons();
   await initSourceFilter();
   await refreshCorpusBadge();

@@ -21,6 +21,8 @@ class SimCard:
     is_land: bool
     is_ramp: bool
     is_fast_mana: bool
+    mana_cost: str = ""             # Scryfall mana_cost string, e.g. "{1}{U}{U}"
+    produced_mana: tuple[str, ...] = ()  # colors this card can tap for, () if it doesn't produce mana
 
 
 @dataclass

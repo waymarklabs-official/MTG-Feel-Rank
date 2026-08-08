@@ -5,51 +5,20 @@ whatever Stage 2 already put in SQLite -- no network calls in this stage.
 """
 from __future__ import annotations
 
-import json
 import sqlite3
 
 from bracket_ranker.analyze.bracket_floor import BracketFloorInputs, compute_bracket_floor
 from bracket_ranker.analyze.card_tags import refresh_all as refresh_card_tags
 from bracket_ranker.analyze.combos import ComboMatch, build_combo_index, find_combos_in_deck
 from bracket_ranker.analyze.cost import compute_cost
+from bracket_ranker.analyze.deck_library import build_library, card_lookup as build_card_lookup
 from bracket_ranker.analyze.feel_signals import compute_feel_signals
 from bracket_ranker.analyze.mana_model.base import SimCard
-from bracket_ranker.analyze.mana_model.v1_naive import NaiveManaModel
+from bracket_ranker.analyze.mana_model.v2_color_aware import ColorAwareManaModel
 from bracket_ranker.config import EARLY_COMBO_TURN_CUTOFF, MONTE_CARLO_SIMULATIONS
 from bracket_ranker.db import connect
 
-MANA_MODEL = NaiveManaModel()
-
-
-def _card_lookup(conn: sqlite3.Connection) -> dict[str, dict]:
-    rows = conn.execute(
-        """SELECT c.oracle_id, c.cmc, c.is_land, t.is_ramp, t.is_fast_mana
-           FROM cards c JOIN card_tags t ON t.oracle_id = c.oracle_id"""
-    ).fetchall()
-    return {r["oracle_id"]: dict(r) for r in rows}
-
-
-def _build_library(
-    card_quantities: dict[str, int],
-    commander_ids: set[str],
-    card_lookup: dict[str, dict],
-) -> list[SimCard]:
-    library = []
-    for oracle_id, qty in card_quantities.items():
-        if oracle_id in commander_ids:
-            continue  # commander lives in the command zone, not the library
-        info = card_lookup.get(oracle_id)
-        if info is None:
-            continue
-        for _ in range(qty):
-            library.append(SimCard(
-                oracle_id=oracle_id,
-                cmc=info["cmc"] or 0.0,
-                is_land=bool(info["is_land"]),
-                is_ramp=bool(info["is_ramp"]),
-                is_fast_mana=bool(info["is_fast_mana"]),
-            ))
-    return library
+MANA_MODEL = ColorAwareManaModel()
 
 
 def _simulate(library: list[SimCard], combo: ComboMatch):
@@ -85,7 +54,7 @@ def analyze_deck(
     median_turn = p25_turn = None
     mana_model_version = MANA_MODEL.VERSION
     if top_combo is not None:
-        library = _build_library(card_quantities, commander_ids, card_lookup)
+        library = build_library(card_quantities, commander_ids, card_lookup)
         result = _simulate(library, top_combo)
         median_turn, p25_turn = result.median_turn, result.p25_turn
 
@@ -95,7 +64,7 @@ def analyze_deck(
         if top_combo is not None and fastest.variant_id == top_combo.variant_id:
             fastest_median = median_turn
         else:
-            library = _build_library(card_quantities, commander_ids, card_lookup)
+            library = build_library(card_quantities, commander_ids, card_lookup)
             fastest_median = _simulate(library, fastest).median_turn
         has_early_two_card_infinite = (
             fastest_median is not None and fastest_median <= EARLY_COMBO_TURN_CUTOFF
@@ -140,7 +109,7 @@ def refresh_all() -> None:
 
         owned_oracle_ids = {r[0] for r in conn.execute("SELECT oracle_id FROM collection")}
         basic_land_ids = {r[0] for r in conn.execute("SELECT oracle_id FROM cards WHERE is_basic_land = 1")}
-        card_lookup = _card_lookup(conn)
+        card_lookup = build_card_lookup(conn)
 
         print("[analyze] building combo index...")
         combo_index = build_combo_index(conn)

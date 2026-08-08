@@ -15,6 +15,7 @@
 <nav class="tabs">
   <button class="tab-btn active" data-tab="explorer">Explorer</button>
   <button class="tab-btn" data-tab="pull">Deep Pull</button>
+  <button class="tab-btn" data-tab="simulate">Simulate</button>
   <button class="tab-btn" data-tab="pipeline">Pipeline</button>
   <button class="tab-btn" data-tab="dashboard">Dashboard</button>
 </nav>
@@ -96,6 +97,63 @@
     <button type="submit" class="primary">Pull &amp; rebuild</button>
   </form>
   <div id="pull-job" class="job-panel"></div>
+</section>
+
+<section id="tab-simulate" class="tab-panel">
+  <h2>Simulate</h2>
+  <p class="hint">
+    Run the Monte Carlo simulator directly on specific decks -- built for testing your own decks,
+    which may not be in the sampled corpus at all. Import any Archidekt deck by URL, pick it as
+    "Your deck", then either stress-test it alone or race it against up to three opponent decks.
+    <strong>Table simulation is not a real interactive Magic simulator</strong> -- there's no
+    stack, no targeting, no blocking. Each deck's game is simulated independently and compared
+    afterward; the "disruption chance" is a single rough estimate from the table's interaction
+    density, not a play-by-play prediction. See the full report for exactly what is and isn't
+    modeled.
+  </p>
+
+  <form id="import-deck-form" class="filter-bar">
+    <div class="field">
+      <label>Import a deck by Archidekt URL or ID</label>
+      <input type="text" id="import-deck-url" placeholder="https://archidekt.com/decks/2057849/..." size="45">
+    </div>
+    <button type="submit" class="primary">Import</button>
+  </form>
+  <div id="import-deck-job" class="job-panel"></div>
+
+  <div class="sim-picker-grid">
+    <div class="sim-picker" data-slot="you">
+      <label>Your deck</label>
+      <input type="text" class="sim-search" placeholder="Search by commander or paste a fingerprint" autocomplete="off">
+      <div class="sim-search-results"></div>
+      <div class="sim-selected"></div>
+    </div>
+    <div class="sim-picker" data-slot="opp1">
+      <label>Opponent 1</label>
+      <input type="text" class="sim-search" placeholder="Search by commander" autocomplete="off">
+      <div class="sim-search-results"></div>
+      <div class="sim-selected"></div>
+    </div>
+    <div class="sim-picker" data-slot="opp2">
+      <label>Opponent 2 (optional)</label>
+      <input type="text" class="sim-search" placeholder="Search by commander" autocomplete="off">
+      <div class="sim-search-results"></div>
+      <div class="sim-selected"></div>
+    </div>
+    <div class="sim-picker" data-slot="opp3">
+      <label>Opponent 3 (optional)</label>
+      <input type="text" class="sim-search" placeholder="Search by commander" autocomplete="off">
+      <div class="sim-search-results"></div>
+      <div class="sim-selected"></div>
+    </div>
+  </div>
+
+  <div class="sim-actions">
+    <button id="run-stress-test-btn" class="primary">Run Stress Test (your deck only)</button>
+    <button id="run-table-sim-btn" class="primary">Run Table Simulation (vs. opponents)</button>
+  </div>
+
+  <div id="sim-report"></div>
 </section>
 
 <section id="tab-pipeline" class="tab-panel">

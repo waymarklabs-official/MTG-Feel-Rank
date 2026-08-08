@@ -134,6 +134,23 @@ Commander Spellbook's own `/estimate-bracket` endpoint on a sample of decks, and
 estimate against Archidekt's own price field. Worth checking after any large corpus change — if a
 sanity gate flips to FAIL, something's wrong before you trust the numbers.
 
+**Simulate tab** — run the Monte Carlo simulator directly on specific decks, built for testing decks
+you're actually building (which may not be in the sampled corpus at all). Import any deck by
+Archidekt URL, select it as "Your deck," then either:
+- **Stress-test it alone**: mulligan rate, color-screw rate (how often a card in hand is castable by
+  raw mana value but not by actual color — the #1 blind spot of a naive mana model), first-castable
+  -spell turn, a mana curve, and the full assembly-turn distribution for *every* detected combo (not
+  just the top-ranked one).
+- **Race it against up to three opponent decks**: each deck's game is simulated completely
+  independently — there's no stack, no targeting, no blocking, this is explicitly not an interactive
+  Magic simulator — and the results are compared statistically afterward, including a rough
+  "disruption chance" derived from the table's aggregate interaction density. Read the full report
+  before trusting a number here; it says exactly what is and isn't modeled.
+
+Importing a deck only runs Stage 2 (resolve) automatically, not the full pipeline — enough to make it
+immediately simulate-able without forcing a slow corpus-wide recalibration. Run "Rebuild everything"
+from the Pipeline tab afterward if you also want the imported deck scored/ranked in Explorer.
+
 ### Typical workflow for one commander
 
 1. **Deep Pull tab** → exact commander name (commas/hyphens matter — match the Scryfall oracle name)
@@ -143,10 +160,26 @@ sanity gate flips to FAIL, something's wrong before you trust the numbers.
    actually read the decklist.
 4. Star what's worth chasing, reject what's not, leave notes.
 
+### Typical workflow for stress-testing a deck you're building
+
+1. **Simulate tab** → paste the deck's Archidekt URL into the import form → it's auto-selected as
+   "Your deck" once the import job finishes.
+2. Click **Run Stress Test** for a solo report (mulligans, color screw, curve-out speed, every
+   detected combo's assembly distribution).
+3. Optionally search for up to three opponent decks (your own other imports, or anything already in
+   the corpus) and click **Run Table Simulation** to see the race comparison.
+4. Read the caveats printed with the report before treating any number as gospel — table simulation
+   in particular is a statistical estimate of table dynamics, not a play-by-play prediction.
+
 ## Using the CLI
 
-Everything the web UI does is also a standalone script — the web layer adds no pipeline logic, only
-HTTP:
+Most of what the web UI does is also a standalone script — the pipeline stages, ranking queries, and
+commander deep-pull all predate the web layer and still work identically from a terminal. The
+Simulate tab's three features (stress test, table simulation, single-deck import) are currently
+web-UI-only — they're thin, synchronous wrappers over `bracket_ranker/analyze/stress_test.py`,
+`table_sim.py`, and `ingest/archidekt.py:fetch_one_deck`, each independently callable from a Python
+shell if you want to script against them directly, but there's no dedicated CLI entry point for them
+yet:
 
 ```bash
 # query the corpus
@@ -181,8 +214,17 @@ in place with the reasoning behind the default:
   mass-land-denial classification. Deliberately crude (the spec's own instruction), documented per
   pattern, easy to extend.
 - `bracket_ranker/analyze/mana_model/` — the Monte Carlo mana model is behind a swappable interface
-  (`base.py`); `v1_naive.py` is intentionally simple and documents every assumption it makes. Write a
-  new module implementing the same interface to try a better one.
+  (`base.py`). `v1_naive.py` compares total mana value only; `v2_color_aware.py` (the current
+  default, used by Stage 3 and the Simulate tab alike) actually checks colored castability via
+  `mana_cost.py`'s greedy pip-matcher. Write a new module implementing the same interface to try a
+  better one.
+- `bracket_ranker/analyze/mana_cost.py` — the mana-cost parser and castability checker. Documents its
+  own simplifications (X treated as 0, Phyrexian mana requires its color, etc.) inline.
+- `bracket_ranker/analyze/stress_test.py` — `COLOR_SCREW_CHECK_TURNS` (how many early turns count
+  toward the color-screw rate) and `TURN_HORIZON`.
+- `bracket_ranker/analyze/table_sim.py` — `DISRUPTION_PER_INTERACTION_POINT` and
+  `MAX_DISRUPTION_CHANCE`, the crude linear model behind the table simulation's "disruption chance."
+  Explicitly a documented guess at a reasonable slope, not a fitted parameter.
 - `bracket_ranker/calibrate/combos.py` — combo relevance-scoring weights (piece count, game-ending
   bonus, tutor-support bonus).
 
@@ -198,6 +240,11 @@ bracket_ranker/          the library
   resolve.py               Stage 2: oracle_id resolution, fingerprinting, dedup
   ingest/                  Stage 1 source adapters (one file per source)
   analyze/                 Stage 3: cost, bracket floor, combos, mana model, feel signals
+    mana_cost.py             mana-cost parsing + color-aware castability
+    mana_model/              swappable mana models (v1_naive, v2_color_aware)
+    stress_test.py           on-demand deep solo simulation (mulligans, color screw, curve, combos)
+    table_sim.py             on-demand 4-player parallel-race simulation
+    deck_library.py          shared "build a deck's simulation inputs" logic
   calibrate/               Stage 4: labels, model fitting, both cross-checks
   rank/                    Stage 5: query CLI, explanation, output CSV, limitations banner
 webapp/                  the local web UI (Flask backend + vanilla JS/CSS frontend, no build step)

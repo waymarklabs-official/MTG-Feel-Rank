@@ -181,17 +181,40 @@ def _tables_referencing(conn: sqlite3.Connection, parent_table: str) -> list[str
 
 
 def store_decks(conn: sqlite3.Connection, decks: list[ResolvedDeck]) -> None:
-    # Fingerprints can legitimately disappear or change dedup winner
-    # between runs; every table keyed on fingerprint gets recomputed
-    # wholesale by its own stage anyway, so clearing them here is free.
-    for table in _tables_referencing(conn, "decks"):
-        conn.execute(f"DELETE FROM {table}")
-    conn.execute("DELETE FROM decks")
+    new_fingerprints = {d.fingerprint for d in decks}
+    old_fingerprints = {row[0] for row in conn.execute("SELECT fingerprint FROM decks")}
+    removed_fingerprints = old_fingerprints - new_fingerprints
+
+    # Only decks actually leaving the corpus need their dependent rows
+    # cleared. A deck whose fingerprint persists across a resolve rerun
+    # has, BY DEFINITION of how the fingerprint is computed (a hash of its
+    # card set), identical content -- whatever Stage 3/4 already computed
+    # for it is still valid. Wholesale-clearing every FK-referencing table
+    # on every resolve run (the previous version of this function) meant
+    # importing ONE new deck blanked deck_signals/deck_scores for the
+    # ENTIRE corpus until the next full Analyze+Calibrate -- caught by
+    # testing the web UI's single-deck import feature, which calls
+    # resolve() alone by design (see webapp/actions.py) rather than the
+    # full pipeline, specifically to stay fast.
+    if removed_fingerprints:
+        placeholders = ",".join("?" * len(removed_fingerprints))
+        removed_list = list(removed_fingerprints)
+        for table in _tables_referencing(conn, "decks"):
+            conn.execute(f"DELETE FROM {table} WHERE fingerprint IN ({placeholders})", removed_list)
+        conn.execute(f"DELETE FROM decks WHERE fingerprint IN ({placeholders})", removed_list)
+
     conn.executemany(
         """INSERT INTO decks (
             fingerprint, commander_name, commander_oracle_id, source, source_url,
             source_deck_id, declared_bracket, source_price_usd, date_added, author, raw_metadata
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(fingerprint) DO UPDATE SET
+            commander_name=excluded.commander_name, commander_oracle_id=excluded.commander_oracle_id,
+            source=excluded.source, source_url=excluded.source_url,
+            source_deck_id=excluded.source_deck_id, declared_bracket=excluded.declared_bracket,
+            source_price_usd=excluded.source_price_usd, date_added=excluded.date_added,
+            author=excluded.author, raw_metadata=excluded.raw_metadata
+        """,
         [
             (d.fingerprint, d.commander_name, d.commander_oracle_id, d.source, d.source_url,
              d.source_deck_id, d.declared_bracket, d.source_price_usd, d.date_added, d.author,
@@ -199,6 +222,13 @@ def store_decks(conn: sqlite3.Connection, decks: list[ResolvedDeck]) -> None:
             for d in decks
         ],
     )
+
+    # deck_cards has no FK dependents of its own (nothing else references
+    # it), so it's safe -- and simplest -- to just refresh it wholesale for
+    # every deck being written. For an unchanged fingerprint this rewrites
+    # identical rows: a little wasted work, never a risk.
+    placeholders = ",".join("?" * len(new_fingerprints))
+    conn.execute(f"DELETE FROM deck_cards WHERE fingerprint IN ({placeholders})", list(new_fingerprints))
     deck_card_rows = [
         (d.fingerprint, oracle_id, qty)
         for d in decks

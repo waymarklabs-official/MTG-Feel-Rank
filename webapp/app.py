@@ -14,6 +14,11 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
 
+from bracket_ranker.analyze.combos import build_combo_index
+from bracket_ranker.analyze.deck_library import build_full_simulation_inputs
+from bracket_ranker.analyze.deck_library import card_lookup as build_card_lookup
+from bracket_ranker.analyze.stress_test import run_stress_test
+from bracket_ranker.analyze.table_sim import TablePlayer, run_table_simulation
 from bracket_ranker.db import connect
 from bracket_ranker.rank.explain import build_explanation
 from webapp import actions
@@ -155,6 +160,26 @@ def api_set_annotation(fingerprint: str):
     return jsonify({"ok": True})
 
 
+@app.get("/api/decks/search")
+def api_decks_search():
+    """Lightweight deck lookup straight off the `decks` table, no join
+    against deck_signals -- unlike /api/decks (Explorer's list), this
+    finds a deck immediately after import, before Stage 3/4 have ever run
+    on it. Powers the deck pickers in the Simulate tab.
+    """
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT fingerprint, commander_name, source, source_url FROM decks
+               WHERE commander_name LIKE ? OR fingerprint LIKE ?
+               ORDER BY commander_name LIMIT 20""",
+            (f"%{q}%", f"{q}%"),
+        ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
 @app.get("/api/commanders")
 def api_commanders():
     q = request.args.get("q", "")
@@ -166,6 +191,95 @@ def api_commanders():
             (f"%{q}%",),
         ).fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+# --- simulation ---------------------------------------------------------
+# Fast enough (well under a second for a few thousand simulations, see
+# bracket_ranker/analyze/stress_test.py and table_sim.py) to run
+# synchronously in the request rather than through the job system --
+# these two are meant to feel instant, not like a background task you poll.
+
+@app.post("/api/decks/<fingerprint>/stress_test")
+def api_stress_test(fingerprint: str):
+    body = request.get_json(silent=True) or {}
+    n_simulations = min(int(body.get("n_simulations", 2000)), 5000)
+
+    with connect() as conn:
+        lookup = build_card_lookup(conn)
+        combo_index = build_combo_index(conn)
+        inputs = build_full_simulation_inputs(conn, fingerprint, lookup, combo_index)
+
+    if inputs is None:
+        return jsonify({"error": "not found"}), 404
+
+    report = run_stress_test(inputs.library, inputs.combo_targets, n_simulations=n_simulations)
+    return jsonify({
+        "fingerprint": fingerprint,
+        "commander_name": inputs.commander_name,
+        "n_simulations": report.n_simulations,
+        "mulligan_rate": report.mulligan_rate,
+        "avg_mulligans_taken": report.avg_mulligans_taken,
+        "first_spell_turn_median": report.first_spell_turn_median,
+        "first_spell_turn_p75": report.first_spell_turn_p75,
+        "color_screw_game_rate": report.color_screw_game_rate,
+        "mana_curve": report.mana_curve,
+        "combo_stats": [
+            {
+                "variant_id": c.variant_id, "piece_count": c.piece_count,
+                "is_game_ender": c.is_game_ender, "is_infinite": c.is_infinite,
+                "median_turn": c.median_turn, "p25_turn": c.p25_turn, "p75_turn": c.p75_turn,
+                "never_rate": c.never_rate,
+            }
+            for c in report.combo_stats
+        ],
+    })
+
+
+@app.post("/api/table_sim")
+def api_table_sim():
+    body = request.get_json(force=True) or {}
+    fingerprints = body.get("fingerprints", [])
+    if len(fingerprints) < 2:
+        return jsonify({"error": "need your deck plus at least one opponent (2-4 fingerprints)"}), 400
+    n_simulations = min(int(body.get("n_simulations", 1500)), 5000)
+
+    with connect() as conn:
+        lookup = build_card_lookup(conn)
+        combo_index = build_combo_index(conn)
+        all_inputs = []
+        for fp in fingerprints:
+            inputs = build_full_simulation_inputs(conn, fp, lookup, combo_index)
+            if inputs is None:
+                return jsonify({"error": f"deck not found: {fp}"}), 404
+            all_inputs.append(inputs)
+
+    players = [
+        TablePlayer(inp.fingerprint, inp.commander_name, inp.library, inp.combo_targets, inp.interaction_count)
+        for inp in all_inputs
+    ]
+    report = run_table_simulation(players, n_simulations=n_simulations)
+
+    return jsonify({
+        "n_simulations": report.n_simulations,
+        "your_raw_combo_rate": report.your_raw_combo_rate,
+        "your_disruption_chance": report.your_disruption_chance,
+        "your_adjusted_combo_rate": report.your_adjusted_combo_rate,
+        "win_race_rate": report.win_race_rate,
+        "players": [
+            {"fingerprint": p.fingerprint, "commander_name": p.commander_name}
+            for p in all_inputs
+        ],
+    })
+
+
+@app.post("/api/jobs/import_deck")
+def api_import_deck():
+    body = request.get_json(force=True) or {}
+    url = body.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "url is required"}), 400
+    job_id = start_job(f"import_deck: {url}", lambda: actions.action_import_deck(url))
+    return jsonify({"job_id": job_id})
 
 
 # --- dashboard ---------------------------------------------------------
