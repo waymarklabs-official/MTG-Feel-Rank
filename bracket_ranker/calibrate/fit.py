@@ -49,25 +49,33 @@ NO_COMBO_ASSEMBLY_SENTINEL = 16.0
 THRESHOLDS = [2, 3, 4, 5]  # binary classifiers for "bracket >= k"
 
 
+def feature_vector_from_signals(signals) -> list[float]:
+    """Build one model input row from a Stage 3 signals dict (or anything
+    dict-like -- a sqlite3.Row works too since it supports __getitem__).
+    The single canonical place this mapping lives: previously duplicated
+    between here and rank/explain.py's per-deck "why" breakdown, which
+    risked the two silently drifting apart. Now both call this, and a
+    third caller (the on-demand deck-preview endpoint, for decks that
+    haven't been through a full Stage 3/4 run yet) reuses it too.
+    """
+    return [
+        signals["game_changer_count"] or 0,
+        signals["has_mass_land_denial"] or 0,
+        signals["bracket_floor"] or 1,
+        signals["combo_count"] or 0,
+        signals["top_combo_relevance"] or 0.0,
+        signals["median_assembly_turn"] if signals["median_assembly_turn"] is not None
+        else NO_COMBO_ASSEMBLY_SENTINEL,
+        signals["tutor_count"] or 0,
+        signals["interaction_count"] or 0,
+        signals["avg_mana_value"] or 0.0,
+        signals["ramp_count"] or 0,
+        signals["fast_mana_count"] or 0,
+    ]
+
+
 def build_feature_matrix(decks: list[LabeledDeck]) -> np.ndarray:
-    rows = []
-    for d in decks:
-        f = d.features
-        row = [
-            f["game_changer_count"] or 0,
-            f["has_mass_land_denial"] or 0,
-            f["bracket_floor"] or 1,
-            f["combo_count"] or 0,
-            f["top_combo_relevance"] or 0.0,
-            f["median_assembly_turn"] if f["median_assembly_turn"] is not None else NO_COMBO_ASSEMBLY_SENTINEL,
-            f["tutor_count"] or 0,
-            f["interaction_count"] or 0,
-            f["avg_mana_value"] or 0.0,
-            f["ramp_count"] or 0,
-            f["fast_mana_count"] or 0,
-        ]
-        rows.append(row)
-    return np.array(rows, dtype=float)
+    return np.array([feature_vector_from_signals(d.features) for d in decks], dtype=float)
 
 
 class OrdinalBracketModel:

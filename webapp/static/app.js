@@ -266,8 +266,8 @@ async function openDeckDetail(fingerprint) {
 function renderStressTestReport(report) {
   const comboRows = report.combo_stats.length
     ? report.combo_stats.map((c) => `
-        <div class="detail-row">
-          <span>${c.piece_count}pc ${c.is_game_ender ? "game-ending" : (c.is_infinite ? "infinite" : "value")}</span>
+        <div class="sim-combo-line">
+          <span class="hint">${c.piece_count}pc ${c.is_game_ender ? "game-ending" : (c.is_infinite ? "infinite" : "value")}${c.card_names && c.card_names.length ? `: ${escapeHtml(c.card_names.join(" + "))}` : ""}</span>
           <span>
             median ${c.median_turn ?? "-"} / p25 ${c.p25_turn ?? "-"} / p75 ${c.p75_turn ?? "-"}
             &mdash; never assembled in ${fmtPct(c.never_rate)} of games
@@ -442,7 +442,34 @@ function initImportDeckForm() {
   });
 }
 
-function selectSimDeck(slot, deck) {
+function renderSimPreview(p) {
+  if (!p) return "";
+  const bracket = p.feel_bracket != null
+    ? `<span class="pill bracket-${p.feel_bracket}">B${p.feel_bracket}</span>`
+    : `<span class="hint">no model trained</span>`;
+  const freshNote = p.signals_computed_fresh
+    ? `<p class="hint">facts computed on the spot -- this deck hasn't been through a full Analyze run</p>`
+    : "";
+  const comboLines = p.combos.length
+    ? p.combos.map((c) => `
+        <div class="sim-combo-line">
+          <span class="hint">${c.piece_count}pc ${c.is_game_ender ? "game-ending" : (c.is_infinite ? "infinite" : "value")}</span>
+          <span>${escapeHtml(c.card_names.join(" + "))}</span>
+        </div>
+      `).join("")
+    : `<p class="hint">No detected combos.</p>`;
+
+  return `
+    <div class="detail-row"><span>Bracket</span><span>${bracket}</span></div>
+    <div class="detail-row"><span>Cost to complete</span><span>${fmtMoney(p.usd_to_complete)} (${fmtPct(p.pct_owned)} owned)</span></div>
+    <div class="detail-row"><span>Game Changers</span><span>${p.game_changer_count}</span></div>
+    <div class="detail-row"><span>Combos detected</span><span>${p.combo_count}</span></div>
+    ${comboLines}
+    ${freshNote}
+  `;
+}
+
+async function selectSimDeck(slot, deck) {
   simSlots[slot] = deck;
   const picker = $(`.sim-picker[data-slot="${slot}"]`);
   picker.querySelector(".sim-search-results").innerHTML = "";
@@ -456,7 +483,19 @@ function selectSimDeck(slot, deck) {
   picker.querySelector(".sim-chip-clear").addEventListener("click", () => {
     simSlots[slot] = null;
     picker.querySelector(".sim-selected").innerHTML = "";
+    picker.querySelector(".sim-preview").innerHTML = "";
   });
+
+  const previewEl = picker.querySelector(".sim-preview");
+  previewEl.innerHTML = `<p class="hint">loading deck facts...</p>`;
+  try {
+    const preview = await api(`/api/decks/${deck.fingerprint}/preview`);
+    if (simSlots[slot] && simSlots[slot].fingerprint === deck.fingerprint) {
+      previewEl.innerHTML = renderSimPreview(preview);
+    }
+  } catch (err) {
+    previewEl.innerHTML = `<p class="hint">could not load deck facts: ${escapeHtml(err.message)}</p>`;
+  }
 }
 
 function initSimPickers() {

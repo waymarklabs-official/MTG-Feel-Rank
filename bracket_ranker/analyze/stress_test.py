@@ -41,6 +41,7 @@ class ComboTarget:
     piece_count: int
     is_game_ender: bool
     is_infinite: bool
+    card_names: tuple[str, ...] = ()  # display-only; unused by the simulation loop itself
 
 
 @dataclass
@@ -53,6 +54,7 @@ class ComboAssemblyStats:
     p25_turn: float | None
     p75_turn: float | None
     never_rate: float
+    card_names: tuple[str, ...] = ()
 
 
 @dataclass
@@ -210,6 +212,7 @@ def run_stress_test(
             p25_turn=_percentile(turns, 0.25),
             p75_turn=_percentile(turns, 0.75),
             never_rate=never_rate,
+            card_names=target.card_names,
         ))
     combo_stats.sort(key=lambda s: (s.median_turn is None, s.median_turn or 0))
 

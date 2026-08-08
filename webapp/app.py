@@ -23,6 +23,7 @@ from bracket_ranker.db import connect
 from bracket_ranker.rank.explain import build_explanation
 from webapp import actions
 from webapp.jobs import get_job, list_jobs, start_job
+from webapp.preview import build_deck_preview
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -180,6 +181,25 @@ def api_decks_search():
     return jsonify([dict(r) for r in rows])
 
 
+@app.get("/api/decks/<fingerprint>/preview")
+def api_deck_preview(fingerprint: str):
+    """Bracket/cost/combo facts for one deck -- the same kind of summary
+    Explorer shows, but works for a deck that was imported seconds ago and
+    hasn't been through a full Analyze/Calibrate run (computed on the spot
+    in that case; see webapp/preview.py). Powers the Simulate tab's deck
+    pickers.
+    """
+    with connect() as conn:
+        lookup = build_card_lookup(conn)
+        combo_index = build_combo_index(conn)
+        owned_oracle_ids = {r[0] for r in conn.execute("SELECT oracle_id FROM collection")}
+        basic_land_ids = {r[0] for r in conn.execute("SELECT oracle_id FROM cards WHERE is_basic_land = 1")}
+        data = build_deck_preview(conn, fingerprint, lookup, combo_index, owned_oracle_ids, basic_land_ids)
+    if data is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(data)
+
+
 @app.get("/api/commanders")
 def api_commanders():
     q = request.args.get("q", "")
@@ -228,7 +248,7 @@ def api_stress_test(fingerprint: str):
                 "variant_id": c.variant_id, "piece_count": c.piece_count,
                 "is_game_ender": c.is_game_ender, "is_infinite": c.is_infinite,
                 "median_turn": c.median_turn, "p25_turn": c.p25_turn, "p75_turn": c.p75_turn,
-                "never_rate": c.never_rate,
+                "never_rate": c.never_rate, "card_names": list(c.card_names),
             }
             for c in report.combo_stats
         ],

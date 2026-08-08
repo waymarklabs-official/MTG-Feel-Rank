@@ -312,6 +312,16 @@ a { color: var(--accent); }
 }
 .sim-chip-clear { background: none; border: none; color: var(--text-dim); font-size: 16px; cursor: pointer; }
 
+.sim-preview { margin-top: 8px; }
+.sim-preview:empty { margin-top: 0; }
+
+.sim-combo-line {
+  padding: 4px 0;
+  font-size: 13.5px;
+  border-bottom: 1px dashed var(--border);
+}
+.sim-combo-line span { display: block; }
+
 .sim-actions { display: flex; gap: 10px; margin-bottom: 16px; }
 
 .stress-report {

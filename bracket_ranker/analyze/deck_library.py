@@ -15,7 +15,7 @@ from bracket_ranker.analyze.mana_model.base import SimCard
 
 def card_lookup(conn: sqlite3.Connection) -> dict[str, dict]:
     rows = conn.execute(
-        """SELECT c.oracle_id, c.cmc, c.is_land, c.mana_cost, c.produced_mana, c.color_identity,
+        """SELECT c.oracle_id, c.name, c.cmc, c.is_land, c.mana_cost, c.produced_mana, c.color_identity,
                   t.is_ramp, t.is_fast_mana
            FROM cards c JOIN card_tags t ON t.oracle_id = c.oracle_id"""
     ).fetchall()
@@ -130,7 +130,12 @@ def build_full_simulation_inputs(
     feel = compute_feel_signals(conn, deck_oracle_ids)
     matches = find_combos_in_deck(combo_index, deck_oracle_ids, feel.tutor_count)
     combo_targets = [
-        ComboTarget(m.variant_id, m.oracle_ids, m.piece_count, m.is_game_ender, m.is_infinite)
+        ComboTarget(
+            m.variant_id, m.oracle_ids, m.piece_count, m.is_game_ender, m.is_infinite,
+            card_names=tuple(sorted(
+                lookup[oid]["name"] for oid in m.oracle_ids if oid in lookup
+            )),
+        )
         for m in matches[:max_combo_targets]
     ]
 

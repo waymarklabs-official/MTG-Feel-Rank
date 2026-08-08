@@ -12,7 +12,7 @@ from __future__ import annotations
 import pickle
 import sqlite3
 
-from bracket_ranker.calibrate.fit import FEATURE_COLUMNS, NO_COMBO_ASSEMBLY_SENTINEL, THRESHOLDS
+from bracket_ranker.calibrate.fit import FEATURE_COLUMNS, THRESHOLDS, feature_vector_from_signals
 from bracket_ranker.config import MODEL_PATH
 
 
@@ -21,29 +21,12 @@ def load_model():
         return pickle.load(f)
 
 
-def _feature_vector(signals: sqlite3.Row) -> list[float]:
-    return [
-        signals["game_changer_count"] or 0,
-        signals["has_mass_land_denial"] or 0,
-        signals["bracket_floor"] or 1,
-        signals["combo_count"] or 0,
-        signals["top_combo_relevance"] or 0.0,
-        signals["median_assembly_turn"] if signals["median_assembly_turn"] is not None
-        else NO_COMBO_ASSEMBLY_SENTINEL,
-        signals["tutor_count"] or 0,
-        signals["interaction_count"] or 0,
-        signals["avg_mana_value"] or 0.0,
-        signals["ramp_count"] or 0,
-        signals["fast_mana_count"] or 0,
-    ]
-
-
 def _feature_contributions(signals: sqlite3.Row) -> list[dict] | None:
     try:
         model = load_model()
     except FileNotFoundError:
         return None
-    x = _feature_vector(signals)
+    x = feature_vector_from_signals(signals)
     by_threshold = []
     for k in THRESHOLDS:
         clf = model.threshold_models.get(k)
